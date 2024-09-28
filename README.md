@@ -1,5 +1,6 @@
 ![Course](https://github.com/johko/computer-vision-course/assets/53175384/58e39903-5a3a-4d48-8f3c-5811f31b93b5)
 
+[![GitHub](https://img.shields.io/badge/-GitHub-000?logo=github&style=for-the-badge)](https://github.com/AmirAziz1221)
 # Community-led Computer Vision Community Course  🤗
 
 This is the repository for a community-led course on Computer Vision. Over 60 contributors from the Hugging Face Computer Vision community have worked together on the content for this course.
