@@ -1,0 +1,92 @@
+# ConvNeXt：2020年代的卷积神经网络 (2022)
+
+## 介绍
+近年来，视觉Transformer (Vision Transformers, ViT) 的突破性进展迅速取代了纯卷积神经网络（CNN）模型，成为图像识别领域的新标杆。
+有意思的是，研究表明，卷积神经网络可以通过借鉴视觉Transformer中的诸多设计选择来显著提升性能。
+ConvNeXt通过整合受ViT启发的多种技术，对纯卷积模型进行了大幅改进，在精度和可扩展性方面均达到了与ViT相媲美的水平。
+
+## 主要改进
+ConvNeXT论文的作者首先以一个标准的ResNet（ResNet-50）模型为基准，然后逐步对其架构进行现代化改造和优化，以模仿视觉Transformer的分层结构。
+主要的改进包括：
+- 训练技巧
+- 宏观设计
+- ResNeXt化
+- 倒置瓶颈
+- 大尺寸卷积核
+- 微观设计
+
+我们将逐一介绍这些主要改进。
+这些设计本身并不具有开创性。然而，你可以从中学习研究人员如何系统地调整和修改设计，从而改进现有模型。
+为了验证每个改进的有效性，我们将比较模型在ImageNet-1K数据集上修改前后的准确率。
+
+![Block Comparison](https://huggingface.co/datasets/hf-vision/course-assets/resolve/main/block_comparison.png)
+
+## 训练技巧
+研究人员首先发现，虽然架构设计选择至关重要，但训练过程的质量对于性能结果也具有关键影响。
+受到DeiT和Swin Transformer的启发，ConvNeXt大量采用了它们的训练技巧。其中一些值得注意的改变是：
+- 训练轮数（Epochs）：将原始的90个训练轮数增加到300个训练轮数。
+- 优化器（Optimizer）：使用AdamW优化器代替Adam优化器，两者的区别在于权重衰减的处理方式。
+- 混合（Mixup，生成随机图像对的加权组合），剪切混合（Cutmix，剪切图像的一部分并用另一张图像的补丁替换它），RandAugment（应用一系列随机增强，例如旋转、平移和剪切）和随机擦除（Random Erasing，随机选择图像中的矩形区域并用随机值擦除其像素），以扩充训练数据。
+- 正则化（Regularization）：使用随机深度（Stochastic Depth）和标签平滑（Label Smoothing）作为正则化技术。
+
+修改这些训练过程后，ResNet-50的准确率从76.1%提升至78.8%。
+
+## 宏观设计
+宏观设计指的是在系统或模型中进行的高层次结构决策和考量，例如层的排列、计算负载在不同阶段的分配以及整体架构。
+通过研究Swin Transformer的宏观网络，作者发现了两个值得关注的设计考虑因素，它们有利于ConvNeXt的性能。
+
+### 阶段计算比例（The stage compute ratio）
+阶段计算比例是指神经网络模型各个阶段之间计算负载的分配。
+ResNet-50有四个主要阶段，分别包含(3, 4, 6, 3)个块，这意味着其计算比例为3:4:6:3。
+为了遵循Swin Transformer的1:1:3:1计算比例，研究人员将ResNet每个阶段的块数从(3, 4, 6, 3)调整为(3, 3, 9, 3)。
+改变阶段计算比例将模型准确率从78.8%提高到79.4%。
+
+### 将Stem替换为Patchify
+通常，在ResNet架构的起始阶段，输入会被送入一个步长为2的7×7卷积层，然后是一个最大池化层，用于将图像缩小4倍。
+然而，作者发现，用一个具有4×4内核大小和步长为4的卷积层来代替Stem层会更有效，实际上是通过不重叠的4x4补丁进行卷积。
+Patchify的作用相同，即将图像缩小4倍，同时减少了层数。
+这个Patchifying步骤略微提高了模型准确率，从79.4%提升至79.5%。
+
+## ResNeXt化
+ConvNeXt还采用了ResNeXt的思想，这在前面的章节中已经阐述过。
+ResNeXt展示了与标准ResNet相比，在浮点运算（FLOPs）数量和准确率之间的优化权衡。
+通过使用深度可分离卷积和1×1卷积，我们可以将空间混合和通道混合分离——这也是视觉Transformer中的一个特征。
+使用深度可分离卷积减少了FLOPs和准确率。
+然而，通过将通道数从64增加到96，准确率高于原始的ResNet-50，同时保持了相似的FLOPs数量。
+此修改将模型准确率从79.5%提高到80.5%。
+
+## 倒置瓶颈（Inverted Bottleneck）
+每个Transformer块中一个常见的思路是使用倒置瓶颈，其中隐藏层比输入维度大得多。
+这个想法也被MobileNetV2在计算机视觉中采用并推广。
+ConvNeXt采纳了这个思路，使用具有96个通道的输入层，并将隐藏层扩展到384个通道。
+通过使用这种技术，它将模型准确率从80.5%提高到80.6%。
+
+![Inverted Bottleneck Comparison](https://huggingface.co/datasets/hf-vision/course-assets/resolve/main/inverted_bottleneck.png)
+
+## 大尺寸卷积核
+促成视觉Transformer卓越性能的一个关键因素是其非局部自注意力机制，这允许更广泛的图像特征感受野。
+在Swin Transformer中，注意力块窗口大小设置为至少7×7，超过了ResNext的3x3内核大小。
+但是，在调整内核大小之前，有必要重新定位深度可分离卷积层，如下图所示。
+这种重新定位使1x1层能够有效地处理计算任务，而深度可分离卷积层则充当更非局部的感受器。
+有了这个，网络可以利用结合更大内核大小卷积的优势。
+实施7x7内核大小保持了80.6%的准确率，但降低了模型的整体FLOPs效率。
+
+![Moving up the Depth Conv Layer](https://huggingface.co/datasets/hf-vision/course-assets/resolve/main/depthwise_moveup.png)
+
+## 微观设计
+除了上述修改之外，作者还对模型进行了一些微观设计更改。
+微观设计指的是低级别的结构决策，例如激活函数的选择和层细节。
+一些值得注意的微观变化是：
+- 激活函数（Activation）：用GELU（Gaussian Error Linear Unit，高斯误差线性单元）激活函数代替ReLU激活函数，并从残差块中删除所有GELU层，仅在两个1×1层之间保留一个。
+- 归一化（Normalization）：通过移除两个BatchNorm层并将BatchNorm替换为LayerNorm，减少归一化层的数量，仅在conv 1 × 1层之前保留一个LayerNorm层。
+- 下采样层（Downsampling Layer）：在ResNet阶段之间添加一个单独的下采样层
+
+这些最终修改将ConvNeXt的准确率从80.6%提升至82.0%。
+最终的ConvNeXt模型超越了Swin Transformer的81.3%的准确率。
+
+## 模型代码
+您可以访问[此HuggingFace文档](https://huggingface.co/docs/transformers/model_doc/convnext)以了解如何将ConvNeXt管道集成到您的代码中。
+
+## 参考文献
+论文“2020年代的ConvNet”于2022年提出了ConvNeXt架构，作者是来自Facebook AI Research的研究团队，包括Zhuang Liu、Hanzi Mao、Chao-Yuan Wu、Christoph Feichtenhofer、Trevor Darrell和Saining Xie。
+该论文可以在[这里](https://arxiv.org/abs/2201.03545)找到，GitHub存储库可以在[这里](https://github.com/facebookresearch/ConvNeXt)找到。

@@ -1,0 +1,172 @@
+# 卷积神经网络简介
+
+在上一个单元中，我们学习了视觉、图像和计算机视觉的基础知识，并探讨了视觉特征作为借助计算机分析图像的关键组成部分。
+
+我们所讨论的那些方法现在通常被称为“经典”计算机视觉。虽然经典方法在许多小型且受限的数据集和设置中表现良好，但当面对更大规模的真实世界数据集时，其局限性就会显现。
+
+在本单元中，我们将学习卷积神经网络，这是在计算机视觉的规模和性能方面向前迈出的重要一步。
+
+## 卷积：基本概念
+
+卷积是一种从数据中提取特征的运算。数据可以是 1D、2D 或 3D 的。我们将用一个具体的例子来阐释这个运算。目前，你只需了解该运算是将一个由数值组成的矩阵在数据上滑动，并计算数据与该矩阵之间的乘积之和。这个矩阵被称为卷积核(kernel)或滤波器(filter)。你或许会问：“这与特征提取有何关联？又该如何应用它呢？”
+不必担心！我们马上就会讲到。
+
+为了说明其中的原理，让我们看一个例子。我们有一维数据，并将其可视化。可视化有助于理解卷积运算的效果。
+
+<div class="flex justify-center">
+    <img src="https://huggingface.co/datasets/hf-vision/course-assets/resolve/main/CNNs/kernel_image.png" alt="Kernel Image">
+</div>
+
+我们有一个卷积核 [-1, 1]。我们将从最左边的元素开始，放置卷积核，将重叠的数值相乘，然后将它们加总。卷积核具有中心；它是其中的一个元素。这里，我们选择 1（右边的元素）作为中心。我们之所以选择 1 作为中心，是因为假设左侧存在一个假想的零，这被称为填充(padding)，稍后你将会看到。现在，卷积核的中心必须覆盖每一个元素，因此为了方便起见，我们在元素的左侧填充一个零。如果不进行填充，就必须从 -1 乘以最左边的元素开始，而 1 将无法覆盖到最左边的元素，因此我们需要应用填充。让我们看看它的具体形式。
+
+<div class="flex justify-center">
+    <img src="https://huggingface.co/datasets/hf-vision/course-assets/resolve/main/CNNs/1d_conv.jpg" alt="1D Conv">
+</div>
+
+我将最左边的元素（当前是一个填充）乘以 -1，将第一个元素（零）乘以 1，然后将它们加总，得到 0，并记录下来。现在，我们将把卷积核移动一个位置，然后重复相同的操作。再次记录下来，这种移动被称为步幅(striding)，通常通过将卷积核移动一个像素来完成。你也可以用多个像素来移动它。结果（卷积后的数据）目前是一个数组 [0, 0]。
+
+<div class="flex justify-center">
+    <img src="https://huggingface.co/datasets/hf-vision/course-assets/resolve/main/CNNs/1d_conv_multiplication.png" alt="1D Conv Multiplication">
+</div>
+
+我们将重复这个过程，直到卷积核的右侧元素覆盖到每一个元素，从而产生以下结果。
+
+<div class="flex justify-center">
+    <img src="https://huggingface.co/datasets/hf-vision/course-assets/resolve/main/CNNs/1d_conv_result.png" alt="1D Conv Result">
+</div>
+
+注意到什么了吗？滤波器给出了数据变化的速率（导数！）。这是我们可以从数据中提取的一个特征。让我们将它可视化。
+
+<div class="flex justify-center">
+    <img src="https://huggingface.co/datasets/hf-vision/course-assets/resolve/main/CNNs/convolved_illustrated.png" alt="Convolved Illustrated">
+</div>
+
+卷积后的数据（卷积的结果）被称为特征图(feature map)。这合情合理，因为它显示了我们可以提取的特征、与数据相关的特性，以及变化的速率。
+
+这正是边缘检测滤波器所做的事情！让我们在二维数据中看看它。这一次，我们的卷积核将有所不同。它将是一个 3x3 的卷积核（只是为了让你知道它也可以是 2x2 的）。
+
+<div class="flex justify-center">
+    <img src="https://huggingface.co/datasets/hf-vision/course-assets/resolve/main/CNNs/2d_conv.png" alt="2D Conv">
+</div>
+
+这个滤波器实际上非常有名，但我们现在不会剧透它:)。之前的滤波器是 [-1 1]。同时，这个是 [-1 0 1]。它只是 3x3 的形状，没有什么不同，它显示了水平轴上的增量和减量。让我们看一个例子并应用卷积。下面是我们的二维数据。
+
+<div class="flex justify-center">
+    <img src="https://huggingface.co/datasets/hf-vision/course-assets/resolve/main/CNNs/2d_conv_matrix.png" alt="2D Conv">
+</div>
+
+把它想象成一张图像，我们想提取水平方向的变化。现在，滤波器的中心必须覆盖到每一个像素，所以我们对图像进行填充。
+
+<div class="flex justify-center">
+    <img src="https://huggingface.co/datasets/hf-vision/course-assets/resolve/main/CNNs/padding.png" alt="Padding">
+</div>
+
+特征图将与原始数据的大小相同。卷积的结果将被写入到卷积核的中心在原始矩阵中覆盖到的相同位置，这意味着，对于这个例子，它将覆盖到最左边和最上面的位置。
+
+<div class="flex justify-center">
+    <img src="https://huggingface.co/datasets/hf-vision/course-assets/resolve/main/CNNs/2d_conv_illustrated.png" alt="2D Conv">
+</div>
+
+如果我们继续应用卷积，我们将得到以下特征图。
+
+<div class="flex justify-center">
+    <img src="https://huggingface.co/datasets/hf-vision/course-assets/resolve/main/CNNs/2d_feature_map.png" alt="2D Feature Map">
+</div>
+
+它向我们展示了水平方向的变化（边缘）。这个滤波器实际上被称为 Prewitt 滤波器。
+
+<div class="flex justify-center">
+    <img src="https://huggingface.co/datasets/hf-vision/course-assets/resolve/main/CNNs/prewitt_sobel.png" alt="Prewitt and Sobel">
+</div>
+
+你可以翻转 [Prewitt 滤波器](https://en.wikipedia.org/wiki/Prewitt_operator) 以获得垂直方向的变化。[Sobel 滤波器](https://en.wikipedia.org/wiki/Sobel_operator) 是另一个著名的边缘检测滤波器。
+
+## 卷积神经网络
+
+很好，但这与深度学习有什么关系呢？嗯，强制使用滤波器来提取特征在每张图像上都不能很好地工作。想象一下，如果我们能以某种方式找到最佳滤波器来提取重要信息，甚至检测图像中的物体。这正是卷积神经网络发挥作用的地方。我们用各种滤波器对图像进行卷积，特征图中的这些像素最终将成为我们将要优化的参数，最终，我们将找到最适合我们问题的滤波器。
+
+我们的想法是，我们将使用滤波器来提取信息。我们将随机初始化多个滤波器，创建我们的特征图，将它们输入到分类器中，并进行反向传播。在深入研究之前，我想向你介绍我们称之为“池化(pooling)”的概念。
+
+正如你在上面看到的，有很多像素显示了特征图中的变化。要知道那里有一个边缘，我们只需要看到那里有一个变化（一个边缘，一个角，任何东西），仅此而已。
+
+<div class="flex justify-center">
+    <img src="https://huggingface.co/datasets/hf-vision/course-assets/resolve/main/CNNs/max_pooling.png" alt="Pooling">
+</div>
+
+在上面的例子中，我们可以只得到其中一个，这就足够了。这样，我们将存储更少的参数，并且仍然拥有这些特征。这种获取特征图中最重要的元素的操作称为池化。通过池化，我们失去了边缘的确切像素位置，但我们存储了更少的参数。此外，通过这种方式，我们的特征提取机制将对微小的变化更加鲁棒，例如，我们只需要知道有两只眼睛、一个鼻子和一张嘴，就知道图像中有一张脸，这些元素之间的距离和这些元素的大小往往因人而异，池化使模型对这些变化更加鲁棒。关于池化的另一个好处是，它可以帮助我们处理不同的输入大小。下面是最大池化(max pooling)操作，每四个像素，我们得到最大的像素。有各种类型的池化，例如，平均池化(average pooling)、加权池化(weighted pooling)或 L2 池化(L2 pooling)。
+
+让我们构建一个简单的 CNN 架构。我们将使用一个 Keras 示例（为了说明），我们将引导你了解发生了什么。下面是我们的模型（同样，不要惊慌，我们将引导你了解发生了什么）。
+
+如果你不知道 Keras Sequential API 在做什么，它可以像乐高积木一样堆叠层并将它们连接起来。每一层都有不同的超参数，Conv2D 层接受卷积滤波器的数量、卷积核大小和激活函数，而 MaxPooling2D 接受池化大小，密集层(dense layer)接受输出单元的数量（同样，不要惊慌）。
+
+大多数卷积网络(convnet)的实现都不进行填充，以便让卷积核以图像处理的方式覆盖到每一个像素。用零填充带来了一个假设，即我们可能在边界有特征，并且它增加了计算的复杂性。这就是为什么你看到第一个输入大小是 (26,26)，我们沿着边界丢失了信息。
+
+```python
+model = keras.Sequential(
+    [
+        keras.Input(shape=input_shape),
+        layers.Conv2D(32, kernel_size=(3, 3), activation="relu"),
+        layers.MaxPooling2D(pool_size=(2, 2)),
+        layers.Conv2D(64, kernel_size=(3, 3), activation="relu"),
+        layers.MaxPooling2D(pool_size=(2, 2)),
+        layers.Flatten(),
+        layers.Dropout(0.5),
+        layers.Dense(num_classes, activation="softmax"),
+    ]
+)
+model.summary()
+```
+```
+Model: "sequential"
+_________________________________________________________________
+Layer (type)                 Output Shape              Param #   
+=================================================================
+conv2d (Conv2D)              (None, 26, 26, 32)        320       
+_________________________________________________________________
+max_pooling2d (MaxPooling2D) (None, 13, 13, 32)        0         
+_________________________________________________________________
+conv2d_1 (Conv2D)            (None, 11, 11, 64)        18496     
+_________________________________________________________________
+max_pooling2d_1 (MaxPooling2 (None, 5, 5, 64)          0         
+_________________________________________________________________
+flatten (Flatten)            (None, 1600)              0         
+_________________________________________________________________
+dropout (Dropout)            (None, 1600)              0         
+_________________________________________________________________
+dense (Dense)                (None, 10)                16010     
+=================================================================
+Total params: 34,826
+Trainable params: 34,826
+Non-trainable params: 0
+_________________________________________________________________
+```
+卷积神经网络从一个输入层和一个卷积层开始。Keras Conv2D 层接受卷积核的数量和卷积核的大小作为参数。下面说明了正在发生的事情。在这里，我们用 32 个卷积核对图像进行卷积，最终得到 32 个特征图，每个特征图的大小都与图像的大小相同。
+<div class="flex justify-center">
+    <img src="https://huggingface.co/datasets/hf-vision/course-assets/resolve/main/CNNs/network_illustration.png" alt="Network">
+</div>
+
+在卷积层之后，我们放置一个最大池化层，以减少存储的参数数量，并使模型对变化具有鲁棒性，如上所述。这将减少计算的参数数量。
+
+<div class="flex justify-center">
+    <img src="https://huggingface.co/datasets/hf-vision/course-assets/resolve/main/CNNs/network_illustration_2.png" alt="Network">
+</div>
+然后，这些特征图被连接在一起并展平(flatten)。
+
+<div class="flex justify-center">
+    <img src="https://huggingface.co/datasets/hf-vision/course-assets/resolve/main/CNNs/network_illustration_3.png" alt="Network">
+</div>
+稍后，我们使用一种叫做 dropout 的方法来删除一部分参数，以避免过拟合(overfitting)。最后，权重的最终形式将通过一个密集层进行分类，并进行反向传播。
+
+### 卷积神经网络中的反向传播理论
+
+反向传播在这里是如何工作的？我们想要优化此处最佳的卷积核值，因此它们是我们的权重。最终，我们期望分类器能够找出像素值、卷积核和类别之间的关系。因此，我们有一个非常长的扁平数组，由像素的池化和激活版本与初始权重（卷积核元素）卷积后的元素组成。我们更新这些权重，以便回答这个问题：“我应该应用哪些卷积核来区分猫和狗的照片？”。训练 CNN 的目的是提出最佳卷积核，而这些卷积核是使用反向传播找到的。在 CNN 出现之前，人们会尝试在图像上应用大量的滤波器来手动提取特征，同时，大多数通用滤波器（正如我们在上面看到的，例如，Prewitt 或 Sobel）不一定适用于所有图像，因为即使在同一数据集中，图像也可能非常不同。这正是 CNN 优于传统图像处理技术的原因。
+
+当我们使用卷积神经网络时，在存储方面有几个优点。
+
+### 参数共享
+
+在卷积神经网络中，我们使用相同的滤波器对所有像素、所有通道和所有图像进行卷积，这提供了优于存储参数的优势，与使用密集神经网络处理图像相比，这要高效得多。这被称为“权重绑定(weight tying)”，这些权重被称为“绑定权重(tied weights)”。这也在自编码器(autoencoder)中有所体现。
+
+### 稀疏交互
+
+在密集连接的神经网络中，我们一次性输入整个数据块——由于图像有成百上千个像素，这让人感到非常不知所措——而在卷积网络中，我们使用较小的卷积核来提取特征。这被称为稀疏交互(sparse interaction)，它可以帮助我们使用更少的内存。

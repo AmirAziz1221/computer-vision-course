@@ -1,0 +1,298 @@
+# YOLO
+
+## 目标检测简述
+
+卷积神经网络（Convolutional Neural Networks, CNN）在图像分类问题上取得了显著进展。然而，目标检测仍然是一个重要的待解决的任务。目标检测不仅需要对图像中的物体进行分类，还需要精确预测物体在图像中的位置，即物体边界框的坐标。YOLO 的突破性贡献正在于此。在深入探讨 YOLO 之前，我们首先回顾一下基于 CNN 的目标检测算法的发展历程。
+
+### RCNN, Fast RCNN, Faster RCNN
+
+#### R-CNN (基于区域的卷积神经网络)
+
+RCNN 是一种将卷积神经网络应用于目标检测的早期方法。简而言之，其核心思想是先检测图像中的“区域”，然后使用 CNN 对这些区域进行分类。因此，整个过程分为多个步骤。RCNN 的相关论文发表于 2012 年 [1]。
+
+RCNN 的步骤如下：
+
+1.  使用选择性搜索（Selective Search）算法提取候选区域。
+2.  使用基于 CNN 的分类器对这些区域中的物体进行分类。
+
+该论文提出的训练步骤如下：
+
+1.  创建一个从目标检测数据集中提取的区域数据集。
+2.  在该区域数据集上微调 Alexnet 模型。
+3.  最后，在目标检测数据集上使用微调后的模型进行训练。
+
+RCNN 的基本流程如图所示：
+![rcnn](https://huggingface.co/datasets/hf-vision/course-assets/resolve/main/Fast%20R-CNN.png)
+
+#### Fast RCNN
+
+Fast RCNN 旨在改进原始 RCNN 的不足，主要体现在以下四个方面：
+
+*   采用单阶段训练，避免了 RCNN 的多阶段训练过程，并引入了多任务损失（multi-task loss）。
+*   无需将特征存储在磁盘上。
+*   引入了 ROI (Region of Interest)池化层，仅从感兴趣区域提取特征。
+*   构建了一个端到端的训练模型，克服了 RCNN 和 SPPnet 等多步骤模型需要分别训练的局限性。
+
+![fast_rcnn](https://huggingface.co/datasets/hf-vision/course-assets/resolve/main/Fast%20R-CNN.png)
+
+#### Faster RCNN
+
+Faster R-CNN 彻底摆脱了对选择性搜索算法的依赖！与 Fast R-CNN 相比，推理速度因此提高了 90%。
+
+*   引入了 RPN（区域提议网络，Regional Proposal Network）。RPN 是一种基于注意力机制的模型，通过训练使模型能够“关注”图像中包含物体的区域。
+*   将 RPN 与 Fast RCNN 合并，形成一个端到端的目标检测模型。
+
+![Faster RCNN](https://cdn-uploads.huggingface.co/production/uploads/6141a88b3a0ec78603c9e784/n8eDqnlEvDS5SIKGoSUpz.png)
+
+#### 特征金字塔网络 (FPN)
+* 特征金字塔网络（Feature Pyramid Network, FPN）是一种用于目标检测的 Inception 模型。
+* 它首先将图像降采样到低维嵌入空间。
+* 然后再将这些嵌入上采样到原始维度。
+* 对每个上采样后的图像，模型尝试预测输出（在本例中为类别）。
+* 此外，还在维度相似的特征图之间建立了跳跃连接！
+
+更多细节请参考论文中的图片。[20]
+
+   [FPN](https://huggingface.co/datasets/hf-vision/course-assets/blob/main/FPN.png)
+   [FPN2](https://huggingface.co/datasets/hf-vision/course-assets/blob/main/FPN_2.png)
+
+## YOLO 架构
+
+YOLO 在当时是一项突破性的创新。它是一个实时的目标检测器，可以通过单个网络进行端到端训练。
+
+### YOLO 之前
+
+早期的检测系统通常在图像块上应用图像分类器。诸如可变形部件模型（Deformable Parts Models, DPM）之类的系统采用滑动窗口方法，即分类器在整个图像上以均匀间隔的位置运行。
+
+另一些工作，如 RCNN，则采用两步检测方法。首先，检测出许多可能的感兴趣区域，这些区域由区域提议网络生成为边界框。然后，分类器在所有提议的区域中运行，以进行最终预测。最后还需要进行后处理，例如细化边界框、消除重复检测以及根据场景中的其他对象重新评估框的置信度。
+
+这些复杂流程的速度较慢且难以优化，因为每个单独的组件都必须单独训练。
+
+### YOLO
+
+YOLO 是一种单步检测器，它在同一次网络传递中同时预测边界框和对象的类别。这使得系统速度非常快，可达每秒 45 帧。
+
+#### 重新定义目标检测
+
+YOLO 将目标检测任务重新定义为一个单一的回归问题，该问题直接预测边界框坐标和类别概率。
+
+在这个框架中，我们将图像划分为一个 $S \times S$ 网格。如果物体的中心落入一个网格单元中，则该网格单元负责检测该物体。我们可以将 $B$ 定义为每个单元格中要检测的最大物体数量。因此，每个网格单元预测 $B$ 个边界框，包括每个框的置信度分数。
+
+#### 置信度（Confidence）
+
+边界框的置信度分数反映了该框被预测的准确程度，它应该接近真实框与预测框的 IOU（交并比，Intersection over Union）。如果网格单元不应预测一个框，则置信度应为零。因此，置信度编码了框的中心存在于网格单元中的概率以及边界框的准确性。
+
+形式上，
+
+$$\text{confidence} := P(\text{Object}) \times \text{IOU}_{\text{pred}}^{\text{truth}}$$
+
+#### 坐标
+
+边界框的坐标编码为 4 个数字 $(x, y, w, h)$。$(x, y)$ 坐标表示框的中心相对于网格单元边界的位置。宽度和高度已归一化为图像尺寸。
+
+#### 类别
+
+类别概率是一个长度为 $C$ 的向量，表示在单元格中存在对象的情况下，每个类别的条件类别概率。每个网格单元仅预测一个向量，这意味着每个网格单元只会被分配一个类别，因此该网格单元预测的所有 $B$ 个边界框将具有相同的类别。
+
+形式上，
+
+$$C_i = P(\text{class}_i \mid \text{Object})$$
+
+在测试时，我们将条件类别概率和单独的框置信度预测相乘，从而得到每个框的特定于类别的置信度分数。这些分数既编码了该类别出现在框中的概率，又编码了预测框与对象的匹配程度。
+
+$$\begin{align}
+C_i \times \text{confidence} &= P(\text{class}_i \mid \text{Object}) \times P(\text{Object}) \times \text{IOU}_{\text{pred}}^{\text{truth}}\\
+&=P(\text{class}_i) \times \text{IOU}_{\text{pred}}^{\text{truth}}
+\end{align}
+$$
+
+总结一下，我们有一张图像，被划分为 $S \times S$ 网格。每个网格单元包含 $B$ 个边界框，每个框包含 5 个值：置信度 + 4 个坐标，以及一个包含每个类别的条件概率的 $C$ 维向量。因此，每个网格单元是一个 $B \times 5 + C$ 维向量。整个网格则是一个 $S \times S \times (B \times 5 + C)$ 的张量。
+
+因此，如果我们可以构建一个可学习的系统，将图像转换为 $S \times S \times (B \times 5 + C)$ 的特征图，那么我们就离完成目标检测任务更近了一步。
+
+#### 网络架构
+
+在原始 YOLOv1 设计中，输入是大小为 $448 \times 448$ 的 RGB 图像。该图像被划分为一个 $S \times S = 7 \times 7$ 网格，其中每个网格单元负责检测 $B=2$ 个边界框和 $C=20$ 个类别。
+
+网络架构是一个简单的卷积神经网络。输入图像通过一系列卷积层，然后是一个全连接层。最后一层的输出被重塑为 $7 \times 7 \times (2 \times 5 + 20) = 7 \times 7 \times 30$。
+
+YOLOv1 的设计灵感来自 GoogLeNet，后者使用 1x1 卷积来减少特征图的深度，从而减少网络中的参数数量和计算量。该网络包含 24 个卷积层，然后是 2 个全连接层。它对最后一层使用线性激活函数，所有其他层都使用 leaky rectified linear activation：
+
+$$\text{LeakyReLU}(x) = \begin{cases}
+x & \text{if } x > 0\\
+0.1x & \text{otherwise}
+\end{cases}$$
+
+有关 YOLOv1 的架构，请参见下图。
+
+![v1_arch](https://huggingface.co/datasets/hf-vision/course-assets/resolve/main/yolov1_arch.png)
+
+#### 训练
+
+该网络在图像和真实边界框上进行端到端训练。损失函数是平方误差损失的总和，旨在惩罚网络对边界框坐标、置信度和类别概率的不正确预测。我们将在下一节中详细讨论损失函数。
+
+YOLO 预测每个网格单元的多个边界框。在训练时，我们只希望一个边界框预测器负责每个对象。我们通过将一个预测器分配给与真实值的 IOU 最高的预测框，来使其“负责”预测一个对象。这促使边界框预测器之间的专业化。每个预测器在预测特定尺寸、宽高比或对象类别方面都变得更好，从而提高了整体召回率。我们使用 $\mathbb{1}{ib}^{\text{obj}}$ 在网格单元 $i$ 和边界框 $b$ 的损失函数中编码此信息。$\mathbb{1}{ib}^{\text{noobj}}$ 则与 $\mathbb{1}_{ib}^{\text{obj}}$ 相反。
+
+##### 损失函数
+
+现在我们有了一个可学习的系统，可以将图像转换为 $S \times S \times (B\times5 + C)$ 特征图，接下来需要训练它。
+
+训练这种系统的一个简单方法是使用平方误差损失的总和，即预测值和真实值之间的边界框坐标、置信度和类别概率的平方误差。
+
+每个网格单元 $(i)$ 的损失可以表示为：
+
+$$
+\mathcal{L}^{i} = \mathcal{L}^{i}_{\text{coord}} + \mathcal{L}^{i}_{\text{conf}} + \mathcal{L}^{i}_{\text{class}}\\
+$$
+
+$$\begin{align*}
+\mathcal{L}^{i}_{\text{coord}} &= \sum_{b=0}^{B} \mathbb{1}_{ib}^{\text{obj}} \left[ \left( \hat{x}_{ib} - x_{ib} \right)^2 + \left( \hat{y}_{ib} - y_{ib} \right)^2 +
+\left(
+    \hat{w}_{ib} - w_{ib}
+\right)^2 +
+\left(
+    \hat{h}_{ib} - h_{ib}
+    \right)^2
+\right]\\
+\mathcal{L}^{i}_{\text{conf}} &= \sum_{b=0}^{B} (\hat{\text{conf}}_{i} - \text{conf}_{i})^2\\
+\mathcal{L}^{i}_{\text{class}} &= \mathbb{1}_i^\text{obj}\sum_{c=0}^{C} (\hat{P}_{i} - P_{i})^2
+\end{align*}
+$$
+
+其中
+
+*   如果第 $i$ 个网格单元中的第 $b$ 个边界框负责检测对象，则 $\mathbb{1}{ib}^{\text{obj}}$ 为 1，否则为 0。
+*   如果第 $i$ 个网格单元包含对象，则 $\mathbb{1}_i^\text{obj}$ 为 1，否则为 0。
+
+然而，此损失函数不一定与目标检测的任务完美契合。简单地将两个任务（分类和定位）的损失相加会同等地衡量损失。
+
+为了解决这个问题，YOLOv1 使用平方误差损失的加权和。首先，我们为定位误差分配一个单独的权重，称为 $\lambda_{\text{coord}}$，通常设置为 5。
+
+因此，每个网格单元 $(i)$ 的损失可以修改为：
+
+$$
+\mathcal{L}^{i} = \lambda_{\text{coord}}
+    \mathcal{L}^{i}_{\text{coord}} + \mathcal{L}^{i}_{\text{conf}} + \mathcal{L}^{i}_{\text{class}}\\
+$$
+
+此外，许多网格单元不包含对象，导致置信度接近于零。这使得包含对象的网格单元通常会压倒梯度，从而导致网络在训练期间不稳定。
+
+为了解决这个问题，我们还降低了不包含对象的网格单元中的置信度预测损失的权重。我们为置信度损失使用一个单独的权重，称为 $\lambda_{\text{noobj}}$，通常设置为 0.5。
+
+因此，每个网格单元 $(i)$ 的置信度损失可以表示为：
+
+$$
+\mathcal{L}^{i}_{\text{conf}} = \sum_{b=0}^{B} \left[
+    \mathbb{1}_{ib}^{\text{obj}} \left( \hat{\text{conf}}_{i} - \text{conf}_{i} \right)^2 +
+    \lambda_{\text{noobj}} \mathbb{1}_{ib}^{\text{noobj}} \left( \hat{\text{conf}}_{i} - \text{conf}_{i} \right)^2
+\right]
+$$
+
+直接对边界框坐标使用平方误差之和也可能会有问题，因为它平等地衡量了大框和小框中的误差。大框中的小偏差不应像小框中的小偏差那样受到同等程度的惩罚。
+
+为了解决这个问题，YOLOv1 对边界框宽度和高度的**平方根**使用平方误差损失之和，使损失函数具有尺度不变性。
+
+因此，每个网格单元 $(i)$ 的定位损失可以表示为：
+
+$$
+\mathcal{L}^{i}_{\text{coord}} = \sum_{b=0}^{B} \mathbb{1}_{ib}^{\text{obj}} \left[ \left( \hat{x}_{ib} - x_{ib} \right)^2 + \left( \hat{y}_{ib} - y_{ib} \right)^2 +
+\left(
+    \sqrt{\hat{w}_{ib}} - \sqrt{w_{ib}}
+\right)^2 +
+\left(
+    \sqrt{\hat{h}_{ib}} - \sqrt{h_{ib}}
+\right)^2
+\right]
+$$
+
+#### 推理（Inference）
+
+推理过程相对简单。我们将图像传递到网络中，并获得一个 $S \times S \times (B \times 5 + C)$ 的特征图。然后，我们过滤掉置信度分数低于设定阈值的框。
+
+##### 非极大值抑制（Non-Maximum Suppression, NMS）
+
+在少数情况下，对于大型对象，网络倾向于从多个网格单元预测多个框。为了消除重复检测，我们使用一种称为非极大值抑制（NMS）的技术。NMS 的工作原理是选择具有最高置信度分数的框，并消除所有 IOU 大于设定阈值的其他框。这个过程会迭代地执行，直到没有重叠的框为止。
+
+端到端流程如下图所示：
+
+![nms](https://huggingface.co/datasets/hf-vision/course-assets/resolve/main/object-detection-gif.gif)
+
+## YOLO 的演变
+
+到目前为止，我们已经了解了 YOLO 的基本特征以及它如何实现高度准确和快速的预测。这实际上是 YOLO 的第一个版本，称为 YOLOv1。YOLOv1 于 2015 年发布，从那时起，已经发布了多个版本。它在准确性和速度方面具有开创性，因为它引入了使用单个卷积神经网络（CNN）一次处理整个图像，将其划分为 S × S 网格的概念。每个网格单元直接预测边界框和类别概率。但是，它存在定位不良和检测小型图像区域中的多个对象的问题。在随后的几年中，不同的团队发布了许多新版本，以逐步提高准确性、速度和鲁棒性。
+
+### **YOLOv2 (2016)**
+
+在发布第一个版本一年后，YOLOv2[5] 发布了。改进的重点是准确性和速度，同时也解决了定位问题。首先，YOLOv2 用 Darknet-19 替换了 YOLOv1 的骨干架构，Darknet-19 是 Darknet 架构的一种变体。Darknet-19 比以前版本的骨干更轻，它由 19 个卷积层和最大池化层组成。这使得 YOLOv2 能够捕获更多信息。此外，它将批量归一化应用于所有卷积层，因此删除了 dropout 层，从而解决了过拟合问题并提高了 mAP (mean Average Precision，平均精度均值)。它还引入了锚框（anchor boxes）的概念，该概念为检测到的框的宽度和高度添加了先验知识（特别是，它们使用了锚框）。此外，为了解决定位不佳的问题，YOLOv2 预测了每个锚框和网格单元（现在为 13x13）的类别和对象。因此，我们最多有（对于 5 个锚框）13x13x5 = 845 个框。
+
+### **YOLOv3 (2018)**
+
+YOLOv3[6] 通过用更复杂但更高效的 Darknet-53 架构替换 Darknet-19 架构，再次显著提高了检测速度和准确性。此外，它通过使用三种不同的尺度进行对象检测（13x13、26x26 和 52x52 网格）更好地解决了定位问题。这有助于在同一区域中找到不同大小的对象。它将边界框增加到：13 x 13 x 3 + 26 x 26 x 3 + 52 x 52 x 3 = 10,647。非极大值抑制（NMS）仍用于过滤掉冗余的重叠框。
+
+### **YOLOv4 (2020)**
+
+早在 2020 年，YOLOv4[7] 就成为速度和准确性方面最好的检测模型之一，在对象检测基准测试中取得了最先进的结果。作者再次更改了骨干架构，选择了更快、更准确的 CSPDarknet53[8]。此版本的一个重要改进是优化了高效的资源利用，使其适用于在各种硬件平台上部署，包括边缘设备。此外，它还包括在训练之前进行的许多增强，这些增强进一步提高了模型的泛化能力。作者将此改进包含在一组称为“免费赠品（bag-of-freebies）”的方法中。“免费赠品”是训练过程需要成本，但旨在提高模型在实时检测中的准确性而不增加推理时间的优化方法。
+
+### **YOLOv5 (2020)**
+
+YOLOv5[9] 将 Darknet 框架（用 C 编写）转换为更灵活且易于使用的 PyTorch 框架。此版本自动执行了以前的锚点检测机制，引入了自动锚点（auto-anchors）。自动锚点自动训练模型锚点以匹配您的数据。在训练期间，YOLO 会自动使用 k 均值（k-means）和遗传方法来演化新的、更好匹配的锚点，并将它们放回 YOLO 模型中。此外，它还提供了不同类型的模型，这些模型取决于硬件约束，其名称与今天的 YOLOv8 模型类似：YOLOv5s、YOLOv5m、YOLOv5l 和 YOLOv5x。
+
+### **YOLOv6 (2022)**
+
+下一个版本 YOLOv6[10][11] 由美团视觉人工智能部门发布，文章标题为：“YOLOv6：一种用于工业的单阶段对象检测框架。”该团队通过关注五个方面，在速度和准确性方面取得了进一步的改进：
+1) 使用 RepVGG 技术进行重新参数化，RepVGG 技术是 VGG 的修改版本，具有跳跃连接。在推理期间，这些连接被融合以提高速度。
+2) 基于重新参数化的检测器的量化。这增加了称为 Rep-PAN 的块。
+3) 认识到考虑模型部署的不同硬件成本和功能的重要性。具体来说，作者测试了低功耗 GPU（如 Tesla T4）的延迟，而之前的作品主要使用高成本机器（如 V100）。
+4) 引入了新型的损失函数，例如用于分类的 Varifocal Loss（可变焦点损失）。用于边界框回归的 IoU Series Loss（IoU 系列损失）和 Distribution Focal Loss（分布焦点损失）。
+5) 在训练期间使用知识蒸馏提高准确性。
+2023 年，YOLOv6 v3[12] 发布，标题为“YOLOv6 v3.0：全面重新加载”，它对网络架构和训练方案进行了增强，再次提高了速度和准确性（在 COCO 数据集上评估），与先前发布的版本相比。
+
+### **YOLOv7 (2022)**
+
+YOLOv7 由 YOLOv4 的作者发布，论文标题为“YOLOv7：可训练的免费赠品集合为实时对象检测器设置了新的最先进水平”[13][14]。具体来说，此版本的免费赠品包括一种称为从粗到细引导的标签分配的新标签分配方法，并使用梯度流传播路径来分析如何将重新参数化的卷积与不同的网络结合使用。他们还为实时对象检测器提出了“扩展”和“复合缩放”方法，可以有效地利用参数和计算。同样，所有这些改进都将实时对象检测带到了一个新的最先进水平，优于以前的版本。
+
+### **YOLOv8 (2023)**
+
+由 Ultralytics 于 2023 年开发的 YOLOv8[15] 再次成为新的 SOTA (State-of-the-art，最先进水平)。它在骨干和颈部（neck）上进行了改进，同时采用了无锚点方法，从而无需预定义的锚框。而是直接进行预测。此版本支持广泛的视觉任务，包括分类、分割和姿势估计。此外，YOLOv8 具有缩放功能，预训练模型提供各种尺寸：nano、small、medium、large 和 extra-large，并且可以轻松地在自定义数据集上进行微调。
+
+### **YOLOv9 (2024)**
+
+YOLOv9 由与 YOLOv7 和 YOLOv4 相同的作者发布，论文标题为“YOLOv9：使用可编程梯度信息学习您想学习的内容”[16][17]。本文重点介绍了现有方法和架构在逐层特征提取和空间变换期间存在的信息丢失问题。为了解决这个问题，作者提出了：
+
+*   可编程梯度信息（PGI）的概念，以应对深度网络实现多个目标所需的各种变化。
+*   通用高效层聚合网络（GELAN），一种新的轻量级网络架构，与当前方法相比，可在不牺牲计算效率的情况下实现更好的参数利用率。
+
+通过这些更改，YOLOv9 在 MS COCO 挑战赛上树立了新的基准。
+
+考虑到时间线和模型不同的许可，我们可以创建下图：
+
+![yolo_evolution](https://huggingface.co/datasets/hf-vision/course-assets/resolve/main/yolo_evolution.png)
+
+### **关于不同版本的说明**
+
+本章简要介绍了 YOLO 的历史/演变，但这是以线性方式进行的。然而，事实并非如此——许多其他版本的 YOLO 是并行发布的。请注意 YOLOv4 和 YOLOv5 在同一年发布。我们没有涵盖的其他版本包括基于 YOLOv3 (2018) 的 YOLOvX (2021) [18] 和基于 YOLOv4 (2020) 的 YOLOR (2021) [19]，以及许多其他版本。
+
+此外，重要的是要理解，“最佳”模型版本的选择取决于用户的要求，例如速度、准确性、硬件限制和用户友好性。例如，YOLOv2 在速度方面非常好。YOLOv3 在准确性和速度之间提供了平衡。YOLOv4 具有最佳的适应性或与不同硬件兼容的能力。
+
+## 参考文献
+
+[1] [Rich feature hierarchies for accurate object detection and semantic segmentation](https://arxiv.org/abs/1311.2524v5) <br />
+[2] [Fast R-CNN](https://arxiv.org/abs/1504.08083) <br />
+[3] [Faster R-CNN](https://arxiv.org/pdf/1506.01497.pdf) <br />
+[4] [Feature Pyramid Network](https://arxiv.org/pdf/1612.03144.pdf) <br />
+[5] [YOLO9000: Better, Faster, Stronger](https://arxiv.org/abs/1612.08242) <br />
+[6] [YOLOv3: An Incremental Improvement](https://arxiv.org/abs/1804.02767) <br />
+[7] [YOLOv4: Optimal Speed and Accuracy of Object Detection](https://arxiv.org/abs/2004.10934) <br />
+[8] [YOLOv4 GitHub repo](https://github.com/AlexeyAB/darknet) <br />
+[9] [Ultralytics YOLOv5](https://docs.ultralytics.com/models/yolov5/) <br />
+[10] [YOLOv6: A Single-Stage Object Detection Framework for Industrial Applications](https://arxiv.org/abs/2209.02976) <br />
+[11] [YOLOv6 GitHub repo](https://github.com/meituan/YOLOv6) <br />
+[12] [YOLOv6 v3.0: A Full-Scale Reloading](https://arxiv.org/abs/2301.05586) <br />
+[13] [YOLOv7: Trainable bag-of-freebies sets new state-of-the-art for real-time object detectors](https://arxiv.org/abs/2207.02696) <br />
+[14] [YOLOv7 GitHub repo](https://github.com/WongKinYiu/yolov7) <br />
+[15] [Ultralytics YOLOv8](https://github.com/ultralytics/ultralytics) <br />
+[16] [YOLOv9: Learning What You Want to Learn Using Programmable Gradient Information](https://arxiv.org/abs/2402.13616) <br />
+[17] [YOLOv9 GitHub repo](https://github.com/WongKinYiu/yolov9) <br />
+[18] [YOLOvX](https://yolovx.com/) <br />
+[19] [You Only Learn One Representation: Unified Network for Multiple Tasks](https://arxiv.org/abs/2105.04206)
+[20] [Feature Pyramid network Paper](https://arxiv.org/abs/1612.03144)

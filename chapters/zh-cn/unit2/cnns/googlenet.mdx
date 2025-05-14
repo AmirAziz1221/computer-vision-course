@@ -1,0 +1,228 @@
+# GoogLeNet
+
+本章将介绍一种名为 GoogLeNet 的卷积神经网络架构。
+
+## 概述
+
+Inception 架构是一种专为计算机视觉任务（如分类和检测）设计的高效卷积神经网络（CNN）。该架构拥有不到 700 万个参数，因此比之前的网络结构更为紧凑，其尺寸比 AlexNet 小 9 倍，比 VGG16 小 22 倍。在 ImageNet 2014 挑战赛中，Google 提出的改进版本 GoogLeNet（向 LeNet 致敬）脱颖而出，在性能上树立了新的标杆，同时与之前的领先方法相比，使用的参数更少，因而备受瞩目。
+
+### 架构创新
+
+在 Inception 架构出现之前，AlexNet 和 VGG 等模型已经展示了加深网络结构的优势。然而，更深的网络通常需要更多的计算步骤，并可能导致过拟合和梯度消失等问题。Inception 架构提供了一种解决方案，能够以更少的浮点参数训练复杂的 CNN。
+
+#### Inception 的“网络中的网络 (Network In Network)”模块
+
+在 AlexNet 或 VGG 等早期网络中，基本的构建模块是卷积层本身。然而，Lin 等人在 2013 年提出了“网络中的网络”的概念，认为单个卷积不一定是最佳的基本构建块，而应该采用更为复杂的结构。受此思想的启发，Inception 模型的作者决定采用一个更复杂的构建块，称为 Inception 模块。该名称恰如其分地来源于著名电影《盗梦空间》(Inception)——“梦中梦”。
+
+Inception 模块的核心思想是对输入特征图应用不同核大小的卷积滤波器，以提取多尺度的特征。具体而言，对于任何输入特征图，Inception 模块并行应用 \\(1 \times 1\\) 卷积、3x3 卷积和 5x5 卷积，以及最大池化操作。所有这四个操作都采用填充 (padding) 和步幅 (stride) 设置，以保持相同的空间维度。最终，将这些操作提取的特征连接起来，作为下一阶段的输入，如图 1 所示。
+
+![inception_naive](https://huggingface.co/datasets/hf-vision/course-assets/resolve/main/inception_naive.png)
+
+图 1：朴素 Inception 模块
+
+不难看出，应用具有较大核大小（如 5x5）的多尺度卷积会显著增加参数数量。随着输入特征大小（通道大小）的增加，这个问题变得更加突出。因此，当我们在网络中堆叠这些“Inception 模块”时，计算量将急剧增加。一个直接的解决方案是在计算需求显著增加的地方减少特征的数量。而高计算量的主要瓶颈在于卷积层。因此，在 3x3 和 5x5 卷积之前，通过计算量较小的 \\(1 \times 1\\) 卷积来降低特征维度。以下面的例子为例：
+
+假设我们希望通过 5x5 卷积将 \\( S \times S \times 128 \\) 的特征图转换为 \\( S \times S \times 256 \\)。如果不包括偏置，参数的数量将达到 5\*5\*128\*256 = 819,200。但是，如果首先通过 \\(1 \times 1\\) 卷积将特征维度降低到 64，那么参数的数量（不包括偏置）将变为 \\( 1\times 1\times 128\times 64 + 5\times 5\times 64\times 256 = 8,192 + 409,600 = 417,792 \\)。这意味着参数数量减少了近一半！
+
+类似地，我们可能也希望在与输出特征图连接之前减少最大池化的输出特征。因此，我们在最大池化层之后添加一个 \\( 1\times 1 \\) 卷积。此外，我们还在每个 \\( 1\times 1 \\) 卷积之后添加一个 ReLU 激活函数，以增加模块的非线性和复杂性，如图 2 所示。
+
+![inception_reduced](https://huggingface.co/datasets/hf-vision/course-assets/resolve/main/inception_reduced.png)
+
+图 2：Inception 模块
+
+此外，由于多尺度卷积的并行操作，我们可以在不加深网络的情况下增加操作的数量，从而有效地缓解梯度消失问题。
+
+#### 平均池化 (Average Pooling)
+
+在 AlexNet 或 VGG 等早期网络中，最后的几层通常是全连接层。由于这些全连接层包含大量的单元，因此它们会贡献网络中的大部分参数。例如，VGG16 的 89% 的参数位于最后三个全连接层中，而 AlexNet 中 95% 的参数位于最后的全连接层中。这种需求可以归因于卷积层不够复杂。
+
+然而，借助 Inception 模块，我们不再需要过多的全连接层，只需沿空间维度进行简单的平均池化就足够了。这一思想也来源于“网络中的网络”论文。尽管如此，GoogLeNet 仍然包含了一个全连接层。实验结果表明，添加该层可以将 top-1 准确率提高 0.6%。
+
+GoogLeNet 仅有 15% 的参数位于全连接层中。
+
+#### 辅助分类器 (Auxiliary Classifiers)
+
+通过引入节省计算量的 \\( 1 \times 1 \\) 卷积以及用平均池化代替多个全连接层，GoogLeNet 网络的参数得到了显著减少。这意味着我们可以添加更多层，从而加深网络。然而，堆叠过多的层可能会导致梯度消失的问题，即梯度在反向传播到网络的初始层时变得越来越小，接近于零。
+
+为了解决这个问题，论文作者引入了辅助分类器，即从中间层的几个小型分类器中分支出来，并将这些分类器的损失以较小的权重添加到总损失中。这确保了靠近输入的层也接收到足够大的梯度。
+
+辅助分类器包括：
+- 一个具有 \\( 5 \times 5 \\) 滤波器大小和步幅 3 的平均池化层。
+- 一个具有 128 个滤波器的 \\( 1 \times 1 \\) 卷积，用于降维和修正线性激活 (rectified linear activation)。
+- 一个具有 1024 个单元和修正线性激活的全连接层。
+- 一个具有 70% 丢弃输出比率的 dropout 层。
+- 一个具有 softmax 损失的线性层作为分类器。
+
+这些辅助分类器在推理时会被移除。然而，使用辅助分类器获得的收益相对较小 (0.5%)。
+
+![googlenet_aux_clf](https://huggingface.co/datasets/hf-vision/course-assets/resolve/main/googlenet_auxiliary_classifier.jpg)
+
+图 3：一个辅助分类器
+
+### 架构 - GoogLeNet
+
+下图展示了 GoogLeNet 的完整架构。所有卷积层，包括 Inception 模块内部的卷积层，都使用 ReLU 激活函数。网络结构首先是两个卷积层和最大池化模块，紧随其后的是一个包含两个 Inception 模块（3a 和 3b）的块以及一个最大池化层。之后是一个包含 5 个 Inception 模块（4a、4b、4c、4d、4e）的块，并在之后进行最大池化。辅助分类器从 4a 和 4d 的输出中取出。接下来是两个 Inception 模块（5a 和 5b）。在此之后，使用一个平均池化层和一个具有 128 个单元的全连接层。
+
+![googlenet_arch](https://huggingface.co/datasets/hf-vision/course-assets/resolve/main/googlenet_architecture.png)
+图 4：完整的 GoogLeNet 架构
+
+### 代码
+
+```python
+import torch
+import torch.nn as nn
+
+
+class BaseConv2d(nn.Module):
+    def __init__(self, in_channels, out_channels, **kwargs):
+        super(BaseConv2d, self).__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, **kwargs)
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.relu(x)
+        return x
+
+
+class InceptionModule(nn.Module):
+    def __init__(self, in_channels, n1x1, n3x3red, n3x3, n5x5red, n5x5, pool_proj):
+        super(InceptionModule, self).__init__()
+
+        self.b1 = nn.Sequential(
+            nn.Conv2d(in_channels, n1x1, kernel_size=1),
+            nn.ReLU(True),
+        )
+
+        self.b2 = nn.Sequential(
+            BaseConv2d(in_channels, n3x3red, kernel_size=1),
+            BaseConv2d(n3x3red, n3x3, kernel_size=3, padding=1),
+        )
+
+        self.b3 = nn.Sequential(
+            BaseConv2d(in_channels, n5x5red, kernel_size=1),
+            BaseConv2d(n5x5red, n5x5, kernel_size=5, padding=2),
+        )
+
+        self.b4 = nn.Sequential(
+            nn.MaxPool2d(3, stride=1, padding=1),
+            BaseConv2d(in_channels, pool_proj, kernel_size=1),
+        )
+
+    def forward(self, x):
+        y1 = self.b1(x)
+        y2 = self.b2(x)
+        y3 = self.b3(x)
+        y4 = self.b4(x)
+        return torch.cat([y1, y2, y3, y4], 1)
+
+
+class AuxiliaryClassifier(nn.Module):
+    def __init__(self, in_channels, num_classes, dropout=0.7):
+        super(AuxiliaryClassifier, self).__init__()
+        self.pool = nn.AvgPool2d(5, stride=3)
+        self.conv = BaseConv2d(in_channels, 128, kernel_size=1)
+        self.relu = nn.ReLU(True)
+        self.flatten = nn.Flatten()
+        self.fc1 = nn.Linear(2048, 1024)
+        self.dropout = nn.Dropout(dropout)
+        self.fc2 = nn.Linear(1024, num_classes)
+
+    def forward(self, x):
+        x = self.pool(x)
+        x = self.conv(x)
+        x = self.flatten(x)
+        x = self.fc1(x)
+        x = self.relu(x)
+        x = self.dropout(x)
+        x = self.fc2(x)
+        return x
+
+
+class GoogLeNet(nn.Module):
+    def __init__(self, use_aux=True):
+        super(GoogLeNet, self).__init__()
+
+        self.use_aux = use_aux
+        ## block 1
+        self.conv1 = BaseConv2d(3, 64, kernel_size=7, stride=2, padding=3)
+        self.lrn1 = nn.LocalResponseNorm(5, alpha=0.0001, beta=0.75)
+        self.maxpool1 = nn.MaxPool2d(3, stride=2, padding=1)
+
+        ## block 2
+        self.conv2 = BaseConv2d(64, 64, kernel_size=1)
+        self.conv3 = BaseConv2d(64, 192, kernel_size=3, padding=1)
+        self.lrn2 = nn.LocalResponseNorm(5, alpha=0.0001, beta=0.75)
+        self.maxpool2 = nn.MaxPool2d(3, stride=2, padding=1)
+
+        ## block 3
+        self.inception3a = InceptionModule(192, 64, 96, 128, 16, 32, 32)
+        self.inception3b = InceptionModule(256, 128, 128, 192, 32, 96, 64)
+        self.maxpool3 = nn.MaxPool2d(3, stride=2, padding=1)
+
+        ## block 4
+        self.inception4a = InceptionModule(480, 192, 96, 208, 16, 48, 64)
+        self.inception4b = InceptionModule(512, 160, 112, 224, 24, 64, 64)
+        self.inception4c = InceptionModule(512, 128, 128, 256, 24, 64, 64)
+        self.inception4d = InceptionModule(512, 112, 144, 288, 32, 64, 64)
+        self.inception4e = InceptionModule(528, 256, 160, 320, 32, 128, 128)
+        self.maxpool4 = nn.MaxPool2d(3, stride=2, padding=1)
+
+        ## block 5
+        self.inception5a = InceptionModule(832, 256, 160, 320, 32, 128, 128)
+        self.inception5b = InceptionModule(832, 384, 192, 384, 48, 128, 128)
+
+        ## auxiliary classifier
+        if self.use_aux:
+            self.aux1 = AuxiliaryClassifier(512, 1000)
+            self.aux2 = AuxiliaryClassifier(528, 1000)
+
+        ## block 6
+        self.avgpool = nn.AvgPool2d(7, stride=1)
+        self.dropout = nn.Dropout(0.4)
+        self.fc = nn.Linear(1024, 1000)
+
+    def forward(self, x):
+        ## block 1
+        x = self.conv1(x)
+        x = self.maxpool1(x)
+        x = self.lrn1(x)
+
+        ## block 2
+        x = self.conv2(x)
+        x = self.conv3(x)
+        x = self.lrn2(x)
+        x = self.maxpool2(x)
+
+        ## block 3
+        x = self.inception3a(x)
+        x = self.inception3b(x)
+        x = self.maxpool3(x)
+
+        ## block 4
+        x = self.inception4a(x)
+        if self.use_aux:
+            aux1 = self.aux1(x)
+        x = self.inception4b(x)
+        x = self.inception4c(x)
+        x = self.inception4d(x)
+        if self.use_aux:
+            aux2 = self.aux2(x)
+        x = self.inception4e(x)
+        x = self.maxpool4(x)
+
+        ## block 5
+        x = self.inception5a(x)
+        x = self.inception5b(x)
+
+        ## block 6
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1)
+        x = self.dropout(x)
+        x = self.fc(x)
+
+        if self.use_aux:
+            return x, aux1, aux2
+        else:
+            return x
+```

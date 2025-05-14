@@ -1,0 +1,50 @@
+# MobileNet 的深度探讨
+## 能否将 Vision Transformer 与 MobileNet 结合使用？
+### 不能直接使用，但我们可以另辟蹊径！
+为了增强图像处理任务，MobileNet 可以通过多种途径与 Transformer 模型整合。
+
+一种策略是利用 MobileNet 作为特征提取器，通过其卷积层处理图像，并将生成的特征输送至 Transformer 模型，以供后续分析。
+
+另一种策略是分别训练 MobileNet 和 Vision Transformer，然后采用集成技术，将两者的预测结果进行融合，从而有可能提升性能，因为每个模型都能够捕捉数据的不同特征。这种多角度的集成展现了在图像处理领域，融合卷积架构和 Transformer 架构的灵活性和潜力。
+
+名为 Mobile-Former 的方案便是对这一概念的实践。
+
+### Mobile-Former
+Mobile-Former 是一种神经网络架构，旨在整合 MobileNet 和 Transformer 的优势，以实现高效的图像处理任务。其设计理念在于利用 MobileNet 进行局部特征提取，并借助 Transformer 实现上下文理解。
+
+![Mobile-Former 架构](https://www.researchgate.net/publication/370058769/figure/fig1/AS:11431281148324026@1681702186116/The-overall-architecture-of-Dynamic-Mobile-FormerDMF-and-details-of-DMF-block.png)
+
+更多详细的阐述，请参阅 [Mobile-Former 的论文](https://arxiv.org/abs/2108.05895)。
+
+## 结合 Timm 使用 MobileNet
+### 什么是 Timm？
+`timm` (Py**T**orch **Im**age **M**odels, PyTorch 图像模型) 是一个 Python 库，它提供了一系列预训练的深度学习模型，主要应用于计算机视觉任务，并提供用于训练、微调和推理的实用工具。
+
+通过 PyTorch 中的 `timm` 库使用 MobileNet 非常便捷，因为它提供了一种简单的方式来访问各种预训练模型，包括各种版本的 MobileNet。
+以下是如何结合 `timm` 使用 MobileNet 的基本实现。
+
+首先，您需要使用 `pip` 安装 `timm`：
+```bash
+pip install timm
+```
+以下是基本代码示例：
+```python
+import timm
+import torch
+
+# 加载预训练的 MobileNet 模型
+model_name = "mobilenetv3_large_100"
+
+model = timm.create_model(model_name, pretrained=True)
+
+# 如果您希望使用该模型进行推理
+model.eval()
+
+# 使用虚拟输入进行前向传播
+# 批大小为 1，3 个颜色通道，224x224 图像
+input_tensor = torch.rand(1, 3, 224, 224)
+
+output = model(input_tensor)
+print(output)
+```
+您可以访问 [Timm 的 Hugging Face 页面](https://huggingface.co/timm)，以获取更多用于各种任务的预训练模型和数据集。
